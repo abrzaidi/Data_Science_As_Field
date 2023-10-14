@@ -1,0 +1,135 @@
+---
+title: "Murder Cases"
+output:
+  html_document: default
+  word_document: default
+date: "2023-10-08"
+---
+
+The NYPD would like run an analysis based on murder rates in the city.  The officers plan on doing a deep analysis on each of the boroughs in New York City, but would like to start with the borough with the highest murder rate.
+
+First, we must import the necessary libraries for analysis.  
+
+```{r, echo=FALSE}
+library(tidyverse)  
+library('forecast')
+library(dplyr)
+library(lubridate)
+library(zoo)
+```
+
+Then, we need to import the dataset with only the relevant columns.  We are only interested in importing the Date of the incident, the Borough it occurred in, and cases that involved murder (meaning they have a "Statistical Murder Flag). 
+
+```{r NYPD}
+url_in<-"https://data.cityofnewyork.us/api/views/833y-fsy8/rows.csv?accessType=DOWNLOAD"
+NYPD <- read.csv(url_in)[,c(2,4,10)]
+head(NYPD, 5)
+
+```
+
+After importing, we need to filter the data to include only murder cases and convert the date of the incident to a date format R can recognize.
+
+```{r a}
+a<-subset(NYPD, NYPD$STATISTICAL_MURDER_FLAG== "true")
+a$OCCUR_DATE<-as.Date(a$OCCUR_DATE, "%m/%d/%Y")
+head(a,5)
+```
+
+Next, we need to bin the datasets into the boroughs to get the totals of the entire data for each borough. 
+
+```{r b}
+b<-a %>% 
+  count(BORO)
+head(b,5)
+```
+
+After this binning, we can create our first visual to compare murder cases in each borough.  As you can see below, Brooklyn has the highest number of murder cases in the data.
+```{r}
+barplot(c(b$n),names.arg = b$BORO,cex.names = .7,
+        main="Murder Cases Per NYC Boro",
+        xlab="Boro",
+        ylab="Count of Murder Cases",
+        border="blue",
+        col="black",
+        density=20)
+```
+
+Now that we know which borough has the highest number of murder cases, we would like to map out the data over the course of all 12 months for the year of 2021 and compare it to the year of 2022.  The Brooklyn Police only have a limited number of resources and believe that the patterns of murder cases may have some type of seasonal trend throughout the year.  As a preliminary step, they would like to compare the months across 2021 and 2022 to see if there are any patterns or trends.  Based on these trends, they may decide to invest in temporary employees or more overtime being offered in certain months rather than spending on full-time employees that would year-round.
+
+The first thing we will do is further clean and adjust the data to only include 2021 and 2022 dates for Brooklyn Murder Cases.  Then, we need to format the dates to be grouped by month and year.  We will start with 2021 data.
+
+```{r Date_2021}
+date<-a$OCCUR_DATE
+murder_cases<-nrow(a)
+Date_2021<- a %>% filter(between(date, as.Date('2021-01-01'), as.Date('2021-12-31')))
+Brooklyn_2021<- Date_2021 %>% filter(BORO== 'BROOKLYN')
+Brooklyn_1s <- replace(Brooklyn_2021, 3, 1 )
+Brooklyn_Agg<-aggregate(Brooklyn_1s$STATISTICAL_MURDER_FLAG, by=list(Brooklyn_1s$OCCUR_DATE), sum)
+Brooklyn_MOM<-Brooklyn_Agg %>% 
+  group_by(month(Group.1)) %>%
+  summarize(Murder_Cases = sum(x))
+colnames(Brooklyn_MOM)[1] ="Month"
+Brooklyn_MOM
+```
+Then, we format the 2022 Data in the same way:
+
+```{r Date_2022}
+Date_2022<- a %>% filter(between(date, as.Date('2022-01-01'), as.Date('2022-12-31')))
+Brooklyn_2022<- Date_2022 %>% filter(BORO== 'BROOKLYN')
+Brooklyn1s22 <- replace(Brooklyn_2022, 3, 1 )
+Brooklyn_22Agg<-aggregate(Brooklyn1s22$STATISTICAL_MURDER_FLAG, by=list(Brooklyn1s22$OCCUR_DATE), sum)
+Brooklyn_MOM_22<-Brooklyn_22Agg %>% 
+  group_by(month(Group.1)) %>%
+  summarize(Murder_Cases = sum(x))
+
+colnames(Brooklyn_MOM_22)[1] ="Month"
+Brooklyn_MOM_22
+```
+
+Now, we can create a line Graph and compare the Month over Month for both years:
+
+
+```{r}
+x  <- Brooklyn_MOM_22$Month
+y1 <- Brooklyn_MOM_22$Murder_Cases
+y2 <- Brooklyn_MOM$Murder_Cases
+
+
+plot(y1, type="o",xlim=c(1,12),ylim=c(0,20), col='green', pch=19,lty=1,main="Brooklyn Murder Cases by Month", xlab="Month of the Year", ylab="Number of Murder Cases")
+axis(side=1, at=1:12)
+
+points(x, y2, col="red", pch=19)
+lines(x, y2, col="red")
+legend("bottomleft", 
+       legend = c("2021", "2022"), 
+       col = c(2, 3),
+       lwd = 2)
+       
+
+```
+
+    As can be seen in the above graph, there are a few similarities and trends that can be seen.  In both years, there is a sharp decline from January to February followed by a rise in March.  From March to April, there is a another decline followed by a sharp rise from April to May.  This is followed by sharp declines in the next two months in 2021 and a decline and small uptick in 2022.  Then, both years have another dramatic climb from July to August.  From August to September, there is a decline in 2021 and a rise in 2022.  September to October had a very small increase for both years and then a sharp decline from October to November.  The biggest noticeable difference between both years was a dramatic climb in 2021 and a decline in 2022.
+    Overall, this comparison shows that there may be a benefit to further Month over Month comparisons between years.  Most trends are similar month over month though there are significant differences in the degree of change especially in months such as July.  Similar changes in murder rates can be due to seasonal changes such as holidays or weather where more people are outside or in public areas.  
+    However, before making any significant decisions using this data, it is important to obtain more years worth of comparisons.  It is also important to understand certain biases in the data.  For example, one could argue that I was biased towards seeing trends in order to use this model and consider it worthy of including into this project rather than creating a new one from scratch.  There also could be biases in data such as differences in categorizing murder versus not murder.  For example, two police officers may differ in categorizing a shooting as murder related if the victim died of causes different from the shooting shortly after.
+    
+    The final step is to create a model of future data.  The police departments in Brooklyn would like to see if there is any improvement in reducing incidents of shootings that lead to murders in recent years.  They also would like to see if this trend is projected to continue in future years.  First, the filtered Brooklyn data for all years is taken and converted into a month and year format.  Then, this formatted data is converted into a time series which is then put into a forecast equation.  Finally, the result is shown in a plot that is only limited to a 5 year window from 2020 to 2025.
+
+```{r fff}
+Brooklyn_Filter<- a %>% filter(BORO== 'BROOKLYN')
+Brooklyn_Replace <- replace(Brooklyn_Filter, 3, 1 )
+Brooklyn_Time<-aggregate(Brooklyn_Replace$STATISTICAL_MURDER_FLAG, by=list(Brooklyn_Replace$OCCUR_DATE), sum)
+Brooklyn_Month<-Brooklyn_Time %>% 
+  group_by(month = lubridate::floor_date(Group.1, "month")) %>%
+  summarize(summary_variable = sum(x))
+
+class(Brooklyn_Month)
+df = as.data.frame(Brooklyn_Month)
+tseries_ts <- as.ts(read.zoo(df, FUN = as.yearmon))
+fff<-forecast(tseries_ts )
+
+plot(fff,xlim=c(2020,2025),main="Forecast of Murder Cases Per Year in Brooklyn",
+     xlab="Year", ylab="Number of Murder")
+       
+```
+
+  As can be seen above, there is projected to be reductions in overall murder rates in the following years.  There are small peaks which are commonly seen mid-year in all years, but the overall trend for both years appear lower than previous years.  There was a very large peak in 2020 which could bias the sample data.  Since this was the year COVID-19 had its effects, the large peak could have several factors related to the illness such as a weaker economy leading to people needing to result to murder to gain money.  Or it could be a misleading stat where deaths from COVID are confused with murders.  Also, one could argue that the decreases in murder rates might be related to police officers reporting incidents not as murder in an effort to artificially deflate the murder rates after their area was found to have the highest murder numbers.
